@@ -103,7 +103,93 @@ void clientTerminate (BIO *sslbio, char *buffer)
     BIO_write(sslbio, buffer, strlen(buffer));
     memset(buffer, '\0', BUF_SIZE);
 }
+
+// This is a function helper that sends the buffer 
+int send_buffer(SSL* ssl, const unsigned char* buffer, int buf_len){
+   int ret;
+
+   /* Sending the buffer length */
+/*   ret = SSL_write(ssl, &buf_len, sizeof(buf_len));
+   if(ret < sizeof(buf_len)){
+      fprintf(stderr, "Error: SSL_write returned %d\n", ret);
+      fprintf(stderr, "SSL_get_error -> %d\n", SSL_get_error(ssl, ret));
+      return 1;
+   }
+*/
+   /* Sending the buffer content */
+   ret = SSL_write(ssl, buffer, buf_len);
+   if(ret < buf_len){
+      fprintf(stderr, "Error: SSL_write returned %d\n", ret);
+      fprintf(stderr, "SSL_get_error -> %d\n", SSL_get_error(ssl, ret));
+      return 1;
+   }
+
+   return 0;
+}
   
+
+// This is a function that sends a file to the server
+// - INPUT file_name = name of the file to be sent
+// - INPUT sk = socket through which the file is sent
+// - RETURNS 0 in case of success, 1 otherwise
+int send_file(const char* file_name, SSL* ssl) {
+
+   FILE* file;      // pointer to the file to be sent
+   int msg_size;          // size of the file to be sent
+
+   unsigned char* clear_buf; // buffer containing the plaintext
+ //  BIO* bio;
+ //  SSL_CTX* ctx;
+ //  SSL* ssl;
+
+   int ret;
+
+   /* Open the file to be sent */
+   file = fopen(file_name, "r");
+   if(file == NULL) {
+      fprintf(stderr, "File not found: '%s'\n", file_name);
+      return 1;
+   }
+
+   /* Retrieve the file size */
+   fseek(file, 0, SEEK_END);
+   msg_size = ftell(file);
+   fseek(file, 0, SEEK_SET);
+
+   /* Reading the file to be sent */
+   clear_buf = malloc(msg_size + 1);
+   ret = fread(clear_buf, 1, msg_size, file);
+   if(ret < msg_size) {
+      fprintf(stderr, "Error reading the file\n");
+      return 1;
+   }
+   clear_buf[msg_size] = '\0';
+   fclose(file);
+
+   printf("\nPlaintext to be sent:\n%s\n", clear_buf);
+
+
+   //SSL_set_bio(ssl, bio, bio);
+
+   /* Sending the file name */
+   ret = send_buffer(ssl, (unsigned char*)file_name, strlen(file_name));
+   if(ret != 0){
+      fprintf(stderr, "Error trasmitting the file name\n ");
+      return 1;
+   }
+
+   /* Sending the file */
+   ret = send_buffer(ssl, clear_buf, msg_size);
+   if(ret != 0) {
+      fprintf(stderr, "Error transmitting the file\n ");
+      return 1;
+   }
+
+   printf("\nFile %s sent:\n   original size is %d bytes.\n", file_name, msg_size);
+
+   return 0;
+}
+
   
 int main(int argc, char **argv)  
 {
@@ -115,7 +201,9 @@ int main(int argc, char **argv)
     int i, p;
     char hostname[BUF_SIZE + 1];
     char choice;
-      
+    int ret;    
+
+  
     if (argc != 4) {  
         printf("Usage: %s IP port sslv3|tls\n", argv[0]);  
         printf("eg: 192.168.201.94 7777 sslv3\n");  
@@ -264,7 +352,7 @@ int main(int argc, char **argv)
         {
             printf("Check-in function will be executed\n");
             choiceProcess (sslbio, buffer, choice);
-            
+            ret = send_file("testFile.txt", ssl);
         }
         else if (choice == 'b')
         {

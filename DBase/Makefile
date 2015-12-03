@@ -11,7 +11,7 @@ LIBS = `mysql_config --cflags --libs`
 # gcc -g createdb.c -o createdb -std=c99 `mysql_config --cflags --libs`
 
 # the build target executable:
-TARGET = initializedb createdb columnHeaders lastRow createTable retrieveData version
+TARGET = checkoutFile initializedb createdb columnHeaders lastRow createTable retrieveData version
 
 all: $(TARGET)
 

@@ -36,7 +36,7 @@ int main(int argc, char **argv)
       finish_with_error(con);
   }
 
-  if (mysql_query(con, "INSERT INTO Files VALUES(2, 'testfile2.txt','NONE','/user1/testfile2.txt','user1',0)")) {
+  if (mysql_query(con, "INSERT INTO Files VALUES(2, 'testfile2.txt','NONE','/client/testfile2.txt','client',0)")) {
       finish_with_error(con);
   }
 

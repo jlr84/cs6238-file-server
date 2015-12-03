@@ -12,10 +12,13 @@
 #include <openssl/ssl.h>  
 #include <openssl/err.h>
 #include <pthread.h>
+#include <my_global.h>
+#include <mysql.h>
   
 #define MAXBUF 1024  
 #define NUMT 10
-  
+
+#define MYSQL_USER       "project2user"  
 #define SERVER_CERT_FILE "cert/server.pem"  
 #define SERVER_KEY_FILE  "cert/server.key"
 
@@ -106,10 +109,19 @@ void choiceProcess (BIO *sslbio, char *buffer, char choice)
 //////////////////////////////////
 //END OF CLIENT-SIDE CODE INSERTED
 //////////////////////////////////
-static void process_input(SSL *ssl, BIO *client, char *choice)
+void finish_with_error(MYSQL *con)
+{
+  fprintf(stderr, "%s\n", mysql_error(con));
+  mysql_close(con);
+  exit(1);        
+}
+
+static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *choice)
 {
     char buffer[MAXBUF];
     int len = 0;
+    char query1[] = "SELECT Id, Name FROM Files WHERE Owner=";
+
 
     if (choice[0] == 'a')
     {
@@ -147,7 +159,7 @@ static void process_input(SSL *ssl, BIO *client, char *choice)
     else if (choice[0] == 'b')
     {
         printf("Check-out function will be executed\n");
-        // Get the user name //
+        // Get the client name //
         memset(buffer,0,1024);
         len = BIO_read(client,buffer,1024);
         switch(SSL_get_error(ssl,len))
@@ -161,6 +173,35 @@ static void process_input(SSL *ssl, BIO *client, char *choice)
         BIO_write(client,buffer,len);
         printf("The client name asking to check out file:\n");
         printf("%s\n",buffer);
+	//Make query
+	char newquery[strlen(buffer) + strlen(query1) +3];
+        strcpy(newquery,query1);
+	strcat(newquery,"'");
+	strcat(newquery,buffer);
+	strcat(newquery,"'");
+  	if (mysql_query(con, newquery)) 
+  	{
+      	    finish_with_error(con);
+        }
+  	MYSQL_RES *result = mysql_store_result(con);
+  	if (result == NULL) 
+  	{
+      	    finish_with_error(con);
+  	}
+        int num_fields = mysql_num_fields(result);
+        MYSQL_ROW row;
+  	while ((row = mysql_fetch_row(result))) 
+  	{ 
+	    int i;
+            for( i = 0; i < num_fields; i++) 
+      	    { 
+          	printf("%s ", row[i] ? row[i] : "NULL"); 
+      	    } 
+            printf("\n"); 
+  	}
+    	mysql_free_result(result);
+
+
     }
     else if (choice[0] == 'c')
     {
@@ -176,7 +217,7 @@ static void process_input(SSL *ssl, BIO *client, char *choice)
     }
 }
 
-static void *recv_data(SSL *ssl, BIO *client)
+static void *recv_data(MYSQL *con, SSL *ssl, BIO *client)
 {
     char buffer[MAXBUF];
     int len = 0;
@@ -209,7 +250,7 @@ static void *recv_data(SSL *ssl, BIO *client)
         BIO_write(client,buffer,len);
         printf("The buffer was the following:\n");
         printf("%s\n",buffer);
-        process_input(ssl, client, buffer);
+        process_input(con, ssl, client, buffer);
         printf("That was the end of the buffer.\n");
     }
 } 
@@ -223,6 +264,29 @@ int main(int argc, char **argv)
     BIO *sslbio, *accept, *client;
     pid_t pid;
     int len;
+
+    if (argc != 2) {  
+        printf("Usage: %s MysqlPassword\n", argv[0]);  
+        printf("eg: '%s pr0ject2p@$$word'\n", argv[0]); 
+        printf("(Reminder: You selected this on initial Project 2 install)\n"); 
+        return -1;  
+    }
+
+    /* Mysql Initialization */
+    printf("Connecting to database\n");
+    MYSQL *con = mysql_init(NULL);
+    if (con == NULL) 
+    {
+        fprintf(stderr, "%s\n", mysql_error(con));
+        exit(1);
+    }  
+
+    if (mysql_real_connect(con, "localhost", MYSQL_USER, argv[1], 
+          "filedata", 0, NULL, 0) == NULL) 
+    {
+        finish_with_error(con);
+    }
+
   
     /* SSL Initialization */  
     SSL_library_init();  
@@ -277,10 +341,8 @@ int main(int argc, char **argv)
         printf("Error binding server socket\n");
     }
 
-    printf("Waiting for incoming connection...\n");
-
-
     
+    printf("Waiting for incoming connection...\n");
     while(1)
     {
     	//Waiting for a new connection to establish//
@@ -310,7 +372,7 @@ int main(int argc, char **argv)
         		return 1;
     	    }
 
-            recv_data(ssl, client);
+            recv_data(con, ssl, client);
         }
 
         BIO_free(client);
@@ -364,5 +426,6 @@ int main(int argc, char **argv)
     BIO_free_all(sslbio);
     BIO_free_all(accept);
     SSL_CTX_free(ctx);
+    mysql_close(con);
     return 0;  
 } 

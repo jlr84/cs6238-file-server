@@ -12,13 +12,17 @@
 #include <openssl/err.h>  
   
 #define BUF_SIZE   (4 * 1024)  
-static char buffer[BUF_SIZE + 1];  
-  
+static char buffer[BUF_SIZE + 1];
+#define NAME_SIZE  32
+static char CLIENT_NAME[NAME_SIZE];
+ 
 #define CA_CERT_FILE     "cert/ca.pem"  
 #define CLIENT_KEY_FILE  "cert/client.key"  
 #define CLIENT_CERT_FILE "cert/client.pem"  
-  
 #define printk printf
+#define OK       0
+#define NO_INPUT 1
+#define TOO_LONG 2
 
 char *menu[] = {
     "a - Check-in",
@@ -28,6 +32,62 @@ char *menu[] = {
     "q - Terminate",
     NULL,
 };
+
+char *imenu[] = {
+    "a - Init-session",
+    "q - Terminate",
+    NULL,
+};
+
+
+static int getLine (char *prmpt, char *buff, size_t sz) {
+    int ch, extra;
+
+    // Get line with buffer overrun protection.
+    if (prmpt != NULL) {
+        printf ("%s", prmpt);
+        fflush (stdout);
+    }
+    if (fgets (buff, sz, stdin) == NULL)
+        return NO_INPUT;
+
+    // If it was too long, there'll be no newline. In that case, we flush
+    // to end of line so that excess doesn't affect the next call.
+    if (buff[strlen(buff)-1] != '\n') {
+        extra = 0;
+        while (((ch = getchar()) != '\n') && (ch != EOF))
+            extra = 1;
+        return (extra == 1) ? TOO_LONG : OK;
+    }
+
+    // Otherwise remove newline and give string back to caller.
+    buff[strlen(buff)-1] = '\0';
+    return OK;
+}
+
+/* Function to get user input up to size 'max */
+void getInput(char *input, char *greet, int max)
+{
+    int rc = 1;
+ 
+    while (rc > 0) { 
+    	printf("%s: \n(Max size %d)\n", greet, max);
+
+        rc = getLine ("Enter input> ", input, max);
+        if (rc == NO_INPUT) {
+            // Extra NL since my system doesn't output that on EOF.
+            printf ("\nNo input\n");
+        }
+        if (rc == TOO_LONG) {
+            printf ("Input too long [%s]\n", input);
+        }
+	else {
+            printf ("OK [%s]\n", input);
+	}
+    }
+    printf("You entered: %s\n", input);
+   // return name;
+}
 
 void ShowCerts(SSL * ssl)  
 {  
@@ -200,13 +260,14 @@ int main(int argc, char **argv)
     unsigned long totl;  
     int i, p;
     char hostname[BUF_SIZE + 1];
+    char server[16];
     char choice;
     int ret;    
 
   
-    if (argc != 4) {  
-        printf("Usage: %s IP port sslv3|tls\n", argv[0]);  
-        printf("eg: 192.168.201.94 7777 sslv3\n");  
+    if (argc != 2) {  
+        printf("Usage: %s ClientName\n", argv[0]);  
+        printf("eg: '%s client1'\n", argv[0]);  
         return -1;  
     }
 
@@ -216,117 +277,128 @@ int main(int argc, char **argv)
         return -1;
     }
     printf("localhost name:%s\n",hostname);
-      
-    SSL_library_init();  
-    ERR_load_BIO_strings();
-    ERR_load_SSL_strings();  
-    SSL_load_error_strings();
-    OpenSSL_add_all_algorithms();
+    
+    if (strlen(argv[0]) >= NAME_SIZE) {
+        fprintf(stderr, "%s is too long! \nPick a shorter client name. (32 characters or less)\n",argv[1]);
+    } else {
+        strcpy(CLIENT_NAME, argv[1]);    
+    }
+    printf("client name: %s\n", CLIENT_NAME);
 
-    //sslbio = BIO_new(BIO_s_connect());
-      
-    if (strcmp(argv[3], "sslv3") == 0) {  
-        //meth = SSLv3_client_method();
-        ctx = SSL_CTX_new(SSLv3_client_method());
-    } else if (strcmp(argv[3], "tls") == 0) {  
-        //meth = TLSv1_client_method();  
-        ctx = SSL_CTX_new(SSLv3_client_method());
-    } else {  
-        printf("Unknow command.\r\n");  
-        return -1;  
-    }  
-      
-    //ctx = SSL_CTX_new(meth);  
-    assert(ctx != NULL);  
+
+    /* Give initial menu to user; get hostname for connection */
+    choice = getchoice("Please select an action", imenu);
+    printf("You have chosen: %c\n", choice);
+    if (choice == 'q')
+    {
+	printf("Ending Program... Goodbye.\n");
+    } 
+    else // choice == 'a' 
+    {
+	printf("Initializing connection...\n");
+    
+	// NOTE: 45 is the max length of a IPv4 address
+        getInput(server, "Enter hostname to connect \n (e.g., '127.0.0.1')", 15);
+
+    	SSL_library_init();  
+    	ERR_load_BIO_strings();
+    	ERR_load_SSL_strings();  
+    	SSL_load_error_strings();
+    	OpenSSL_add_all_algorithms();
+
+    	ctx = SSL_CTX_new(SSLv3_client_method());
+    	  
+    	//ctx = SSL_CTX_new(meth);  
+    	assert(ctx != NULL);  
           
-    /* Verify the server */  
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);  
+    	/* Verify the server */  
+    	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);  
       
-    /* Load CA Certificate */  
-    if (!SSL_CTX_load_verify_locations(ctx, CA_CERT_FILE, NULL)) {  
-        printf("Load CA file failed.\r\n");  
-        //goto free_ctx;
-        BIO_free_all(sslbio);
-        SSL_CTX_free(ctx);
-        return 0;
-    }  
+    	/* Load CA Certificate */  
+    	if (!SSL_CTX_load_verify_locations(ctx, CA_CERT_FILE, NULL)) {  
+            printf("Load CA file failed.\r\n");  
+            //goto free_ctx;
+            BIO_free_all(sslbio);
+            SSL_CTX_free(ctx);
+            return 0;
+        }  
   
       
-    /* Load Client Certificate with Public Key */  
-    if (SSL_CTX_use_certificate_file(ctx, CLIENT_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {  
-        ERR_print_errors_fp(stdout);  
-        printf("ssl_ctx_use_certificate_file failed.\r\n");  
-        //goto free_ctx;
-        BIO_free_all(sslbio);
-        SSL_CTX_free(ctx);
-        return 0;  
-    }  
+    	/* Load Client Certificate with Public Key */  
+    	if (SSL_CTX_use_certificate_file(ctx, CLIENT_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {  
+            ERR_print_errors_fp(stdout);  
+            printf("ssl_ctx_use_certificate_file failed.\r\n");  
+            //goto free_ctx;
+            BIO_free_all(sslbio);
+            SSL_CTX_free(ctx);
+            return 0;  
+        }  
   
       
-    /* Load Private Key */  
-    if (SSL_CTX_use_PrivateKey_file(ctx, CLIENT_KEY_FILE, SSL_FILETYPE_PEM) <= 0) {  
-        ERR_print_errors_fp(stdout);  
-        printf("ssl_ctx_use_privatekey_file failed.\r\n");  
-        //goto free_ctx;
-        BIO_free_all(sslbio);
-        SSL_CTX_free(ctx);
-        return 0;
-    }  
+    	/* Load Private Key */  
+    	if (SSL_CTX_use_PrivateKey_file(ctx, CLIENT_KEY_FILE, SSL_FILETYPE_PEM) <= 0) {  
+            ERR_print_errors_fp(stdout);  
+            printf("ssl_ctx_use_privatekey_file failed.\r\n");  
+            //goto free_ctx;
+            BIO_free_all(sslbio);
+            SSL_CTX_free(ctx);
+            return 0;
+        }  
   
       
-    /* Check the validity of Private Key */  
-    if (!SSL_CTX_check_private_key(ctx)) {  
-        ERR_print_errors_fp(stdout);  
-        printf("ssl_ctx_check_private_key failed.\r\n");  
-        //goto free_ctx;
-        BIO_free_all(sslbio);
-        SSL_CTX_free(ctx);
-        return 0;  
-    }
+    	/* Check the validity of Private Key */  
+    	if (!SSL_CTX_check_private_key(ctx)) {  
+            ERR_print_errors_fp(stdout);  
+            printf("ssl_ctx_check_private_key failed.\r\n");  
+            //goto free_ctx;
+            BIO_free_all(sslbio);
+            SSL_CTX_free(ctx);
+            return 0;  
+    	}
 
-    /* Create the connection */
-    sslbio = BIO_new_ssl_connect(ctx);
-    /* Get SSL from sslbio */
-    BIO_get_ssl(sslbio, &ssl);
-    /* Set the SSL mode into SSL_MODE_AUTO_RETRY */
-    SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
-  
-    BIO_set_conn_hostname(sslbio, "127.0.0.1:7777");
-    //unsigned long ladd = inet_addr("127.0.0.1");
-    //BIO_set_conn_ip(sslbio, &ladd);
-    //BIO_set_conn_port(sslbio, "7777");
-    //BIO_set_conn_hostname(sslbio, "localhost");
+    	/* Create the connection */
+    	sslbio = BIO_new_ssl_connect(ctx);
+    	/* Get SSL from sslbio */
+    	BIO_get_ssl(sslbio, &ssl);
+    	/* Set the SSL mode into SSL_MODE_AUTO_RETRY */
+    	SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
+ 
+    	//////////////////////////////////////////////////
+    	// NOTE: Port# hardcoded here; change if necessary
+    	////////////////////////////////////////////////// 
+    	BIO_set_conn_port(sslbio, "7777");
+    	BIO_set_conn_hostname(sslbio, server);
+	
+	/* Request Connection */
+	if(BIO_do_connect(sslbio) <= 0)
+    	{
+            fprintf(stderr, "Error attempting to connect\n");
+            ERR_print_errors_fp(stderr);
+            BIO_free_all(sslbio);
+            SSL_CTX_free(ctx);
+            return 0;
+    	}
+    	else
+    	{
+            printf("connent to server successful!\n");
+    	}
 
-    /* Request Connection */
-    if(BIO_do_connect(sslbio) <= 0)
-    {
-        fprintf(stderr, "Error attempting to connect\n");
-        ERR_print_errors_fp(stderr);
-        BIO_free_all(sslbio);
-        SSL_CTX_free(ctx);
-        return 0;
-    }
-    else
-    {
-        printf("connent to server successful!\n");
-    }
+    	/* Verify Server Certificate Validity */
+    	if(SSL_get_verify_result(ssl) != X509_V_OK)
+    	{
+            printf("Certificate Verification Error: %ld\n", SSL_get_verify_result(ssl));
+            BIO_free_all(sslbio);
+            SSL_CTX_free(ctx);
+            return 0;
+    	}
+    	else
+    	{
+    	    printf("verify server cert successful\n");
+    	}
 
-    /* Verify Server Certificate Validity */
-    if(SSL_get_verify_result(ssl) != X509_V_OK)
-    {
-        printf("Certificate Verification Error: %ld\n", SSL_get_verify_result(ssl));
-        BIO_free_all(sslbio);
-        SSL_CTX_free(ctx);
-        return 0;
-    }
-    else
-    {
-        printf("verify server cert successful\n");
-    }
-
-    //Send hostname to server
-    printf("Send hostname to server:\n");
-    BIO_write(sslbio, hostname, strlen(hostname));
+    	//Send hostname to server
+    	printf("Send hostname to server:\n");
+    	BIO_write(sslbio, hostname, strlen(hostname));
   
     /*for (i = 0; i < 5; i++)
     {
@@ -343,45 +415,47 @@ int main(int argc, char **argv)
         memset(buffer, '\0', BUF_SIZE);
     }*/
 
-    do
-    {
-        choice = getchoice("Please select an action", menu);
-        printf("You have chosen: %c\n", choice);
+    	do
+    	{
+    	    choice = getchoice("Please select an action", menu);
+    	    printf("You have chosen: %c\n", choice);
+	
+	    if (choice == 'a')
+	    {
+        	printf("Check-in function will be executed\n");
+                choiceProcess (sslbio, buffer, choice);
+                ret = send_file("testFile.txt", ssl);
+            }
+            else if (choice == 'b')
+            {
+                printf("Check-out function will be executed\n");
+                choiceProcess (sslbio, buffer, choice);
+            }
+            else if (choice == 'c')
+            {
+                printf("Delegate function will be executed\n");
+                choiceProcess (sslbio, buffer, choice);
+            }
+            else if (choice == 'd')
+            {
+                printf("Safe-delete function will be executed\n");
+                choiceProcess (sslbio, buffer, choice);
+            }
+            else
+            {
+                printf("Terminate function will be executed\n");
+            }
 
-        if (choice == 'a')
-        {
-            printf("Check-in function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-            ret = send_file("testFile.txt", ssl);
-        }
-        else if (choice == 'b')
-        {
-            printf("Check-out function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-        }
-        else if (choice == 'c')
-        {
-            printf("Delegate function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-        }
-        else if (choice == 'd')
-        {
-            printf("Safe-delete function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-        }
-        else
-        {
-            printf("Terminate function will be executed\n");
-        }
+        } while (choice != 'q');
 
-    } while (choice != 'q');
+        /* Terminate the connection by sending message */
+        clientTerminate (sslbio, buffer);
 
-    /* Terminate the connection by sending message */
-    clientTerminate (sslbio, buffer);
+        /* Close the connection and free the context */
+        BIO_ssl_shutdown(sslbio);
+        BIO_free_all(sslbio);
+    	SSL_CTX_free(ctx);
+    }
 
-    /* Close the connection and free the context */
-    BIO_ssl_shutdown(sslbio);
-    BIO_free_all(sslbio);
-    SSL_CTX_free(ctx);
     return 0;  
 } 

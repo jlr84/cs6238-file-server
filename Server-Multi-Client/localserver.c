@@ -147,6 +147,20 @@ static void process_input(SSL *ssl, BIO *client, char *choice)
     else if (choice[0] == 'b')
     {
         printf("Check-out function will be executed\n");
+        // Get the user name //
+        memset(buffer,0,1024);
+        len = BIO_read(client,buffer,1024);
+        switch(SSL_get_error(ssl,len))
+        {
+            case SSL_ERROR_NONE:
+                break;
+            default:
+                printf("Read Problem!\n");
+                exit(0);
+        }
+        BIO_write(client,buffer,len);
+        printf("The client name asking to check out file:\n");
+        printf("%s\n",buffer);
     }
     else if (choice[0] == 'c')
     {

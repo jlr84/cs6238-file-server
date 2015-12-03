@@ -17,8 +17,6 @@ static char buffer[BUF_SIZE + 1];
 static char CLIENT_NAME[NAME_SIZE];
  
 #define CA_CERT_FILE     "cert/ca.pem"  
-#define CLIENT_KEY_FILE  "cert/client.key"  
-#define CLIENT_CERT_FILE "cert/client.pem"  
 #define printk printf
 #define OK       0
 #define NO_INPUT 1
@@ -250,6 +248,22 @@ int send_file(const char* file_name, SSL* ssl) {
    return 0;
 }
 
+// This is a function that checks out a file from the serverr
+// - RETURNS 0 in case of success, 1 otherwise
+int checkout_file(SSL* ssl) {
+
+   FILE* file;            // pointer to the file to be received
+   int ret;
+
+   /* Sending the client name */
+   ret = send_buffer(ssl, (unsigned char*)CLIENT_NAME, strlen(CLIENT_NAME));
+   if(ret != 0){
+      fprintf(stderr, "Error trasmitting the client name\n ");
+      return 1;
+   }
+
+   return 0;
+}
   
 int main(int argc, char **argv)  
 {
@@ -284,6 +298,43 @@ int main(int argc, char **argv)
         strcpy(CLIENT_NAME, argv[1]);    
     }
     printf("client name: %s\n", CLIENT_NAME);
+
+    /* Formatting required certificates for client ...
+       certificates are matched to client with file names */
+    char CLIENT_CERT_FILE[strlen(CLIENT_NAME + 10)];
+    strcpy(CLIENT_CERT_FILE, "cert/");
+    strcat(CLIENT_CERT_FILE, CLIENT_NAME);
+    strcat(CLIENT_CERT_FILE, ".pem");
+    printf("This client cert file is required: %s\n", CLIENT_CERT_FILE);
+    /* Checking for required certificate */
+    if( access( CLIENT_CERT_FILE, F_OK ) != -1 ) {
+    // file exists
+	printf("CERT file verified present\n");
+    } else {
+    // file doesn't exist
+	printf("CERT NOT FOUND....\n"
+		"Perhaps this client does not have valid\n"
+		"certificates present at this location\n"
+		">>> ./%s\n",CLIENT_CERT_FILE);
+	exit(4);
+    }
+    char CLIENT_KEY_FILE[strlen(CLIENT_NAME + 10)];
+    strcpy(CLIENT_KEY_FILE, "cert/");
+    strcat(CLIENT_KEY_FILE, CLIENT_NAME);
+    strcat(CLIENT_KEY_FILE, ".key");
+    printf("This client KEY file is required: %s\n", CLIENT_KEY_FILE);
+    /* Checking for required certificate */
+    if( access( CLIENT_KEY_FILE, F_OK ) != -1 ) {
+    // file exists
+	printf("KEY file verified present\n");
+    } else {
+    // file doesn't exist
+	printf("KEY NOT FOUND....\n"
+		"Perhaps this client does not have valid"
+		"certificates present at this location\n"
+		">>> ./%s\n",CLIENT_KEY_FILE);
+	exit(4);
+    }
 
 
     /* Give initial menu to user; get hostname for connection */
@@ -400,21 +451,6 @@ int main(int argc, char **argv)
     	printf("Send hostname to server:\n");
     	BIO_write(sslbio, hostname, strlen(hostname));
   
-    /*for (i = 0; i < 5; i++)
-    {
-        printf("Please input:\n");
-	scanf("%s",&buffer[0]);
-        BIO_write(sslbio, buffer, strlen(buffer));
-        p = BIO_read(sslbio, buffer, BUF_SIZE);
-        if(p <= 0)
-        {
-            break;
-        }
-        buffer[p] = '\0';
-        printf("%s\n", buffer);
-        memset(buffer, '\0', BUF_SIZE);
-    }*/
-
     	do
     	{
     	    choice = getchoice("Please select an action", menu);
@@ -430,6 +466,7 @@ int main(int argc, char **argv)
             {
                 printf("Check-out function will be executed\n");
                 choiceProcess (sslbio, buffer, choice);
+		ret = checkout_file(ssl);
             }
             else if (choice == 'c')
             {

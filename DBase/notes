@@ -1,0 +1,13 @@
+sudo apt-get install mysql-server libmysqlclient-dev
+
+sudo service mysql status
+sudo service mysql stop
+sudo service mysql start
+mysql_secure_installaion
+
+CREATE USER user12@localhost IDENTIFIED BY '34klq*';
+GRANT ALL ON testdb.* to user12@localhost;
+
+gcc version.c -o version  `mysql_config --cflags --libs`
+
+gcc createdb.c -o createdb -std=c99  `mysql_config --cflags --libs`

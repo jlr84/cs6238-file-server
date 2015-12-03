@@ -15,8 +15,6 @@
 static char buffer[BUF_SIZE + 1];
 #define NAME_SIZE  32
 static char CLIENT_NAME[NAME_SIZE];
-#define CLIENT_KEY_FILE  "cert/client.key"  
-#define CLIENT_CERT_FILE "cert/client.pem"  
 #define CA_CERT_FILE     "cert/ca.pem"  
 #define printk printf
 #define OK       0
@@ -70,7 +68,7 @@ void getInput(char *input, char *greet, int max)
     int rc = 1;
  
     while (rc > 0) { 
-    	printf("%s: \n(Max size %d)\n", greet, max);
+    	printf("%s: \n", greet);
 
         rc = getLine ("Enter input> ", input, max);
         if (rc == NO_INPUT) {
@@ -115,7 +113,7 @@ char getchoice(char *greet, char *choices[])
     char **option;
 
     do {
-        printf("Choice: %s\n",greet);
+        printf("\nChoice: %s\n",greet);
         option = choices;
         while(*option) {
             printf("%s\n",*option);
@@ -293,8 +291,8 @@ int main(int argc, char **argv)
     }
     printf("localhost name:%s\n",hostname);
     
-    if (strlen(argv[0]) >= NAME_SIZE) {
-        fprintf(stderr, "%s is too long! \nPick a shorter client name. (32 characters or less)\n",argv[1]);
+    if (strlen(argv[1]) >= NAME_SIZE) {
+        fprintf(stderr, "%s is too long! \nPick a shorter client name.\n",argv[1]);
     } else {
         strcpy(CLIENT_NAME, argv[1]);    
     }
@@ -302,13 +300,14 @@ int main(int argc, char **argv)
 
     /* Formatting required certificates for client ...
        certificates are matched to client with file names */
-/*    char CLIENT_CERT_FILE[strlen(CLIENT_NAME + 10)];
-    strcpy(CLIENT_CERT_FILE, "cert/");
-    strcat(CLIENT_CERT_FILE, CLIENT_NAME);
-    strcat(CLIENT_CERT_FILE, ".pem");
-    printf("This client cert file is required: %s\n", CLIENT_CERT_FILE);
+    int length = strlen(CLIENT_NAME) + 10;
+    char CLIENT_CERT_FILE2[length];
+    strcpy(CLIENT_CERT_FILE2, "cert/");
+    strcat(CLIENT_CERT_FILE2, CLIENT_NAME);
+    strcat(CLIENT_CERT_FILE2, ".pem");
+    printf("This client CERT file is required: %s\n", CLIENT_CERT_FILE2);
     // Checking for required certificate
-    if( access( CLIENT_CERT_FILE, F_OK ) != -1 ) {
+    if( access( CLIENT_CERT_FILE2, F_OK ) != -1 ) {
     // file exists
 	printf("CERT file verified present\n");
     } else {
@@ -316,27 +315,26 @@ int main(int argc, char **argv)
 	printf("CERT NOT FOUND....\n"
 		"Perhaps this client does not have valid\n"
 		"certificates present at this location\n"
-		">>> ./%s\n",CLIENT_CERT_FILE);
+		">>> ./%s\n",CLIENT_CERT_FILE2);
 	exit(4);
     }
-    char CLIENT_KEY_FILE[strlen(CLIENT_NAME + 10)];
-    strcpy(CLIENT_KEY_FILE, "cert/");
-    strcat(CLIENT_KEY_FILE, CLIENT_NAME);
-    strcat(CLIENT_KEY_FILE, ".key");
-    printf("This client KEY file is required: %s\n", CLIENT_KEY_FILE);
+    char CLIENT_KEY_FILE2[length];
+    strcpy(CLIENT_KEY_FILE2, "cert/");
+    strcat(CLIENT_KEY_FILE2, CLIENT_NAME);
+    strcat(CLIENT_KEY_FILE2, ".key");
+    printf("This client KEY file is required: %s\n", CLIENT_KEY_FILE2);
     // Checking for required certificate
-    if( access( CLIENT_KEY_FILE, F_OK ) != -1 ) {
+    if( access( CLIENT_KEY_FILE2, F_OK ) != -1 ) {
     // file exists
-	printf("KEY file verified present\n");
+	printf("KEY file verified present\n\n");
     } else {
     // file doesn't exist
 	printf("KEY NOT FOUND....\n"
 		"Perhaps this client does not have valid"
 		"certificates present at this location\n"
-		">>> ./%s\n",CLIENT_KEY_FILE);
+		">>> ./%s\n",CLIENT_KEY_FILE2);
 	exit(4);
     }
-*/
 
     /* Give initial menu to user; get hostname for connection */
     choice = getchoice("Please select an action", imenu);
@@ -351,13 +349,11 @@ int main(int argc, char **argv)
     
 	// NOTE: 45 is the max length of a IPv4 address
         getInput(server, "Enter hostname to connect \n (e.g., '127.0.0.1')", 15);
-printf("Test1");
     	SSL_library_init();  
     	ERR_load_BIO_strings();
     	ERR_load_SSL_strings();  
     	SSL_load_error_strings();
     	OpenSSL_add_all_algorithms();
-printf("test2");
     	ctx = SSL_CTX_new(SSLv3_client_method());
     	  
     	//ctx = SSL_CTX_new(meth);  
@@ -365,7 +361,6 @@ printf("test2");
           
     	/* Verify the server */  
     	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);  
-printf("test3");      
     	/* Load CA Certificate */  
     	if (!SSL_CTX_load_verify_locations(ctx, CA_CERT_FILE, NULL)) {  
             printf("Load CA file failed.\r\n");  
@@ -375,10 +370,9 @@ printf("test3");
             return 0;
         }  
   
-printf("test4");      
 
     	/* Load Client Certificate with Public Key */  
-    	if (SSL_CTX_use_certificate_file(ctx, CLIENT_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {  
+    	if (SSL_CTX_use_certificate_file(ctx, CLIENT_CERT_FILE2, SSL_FILETYPE_PEM) <= 0) {  
             ERR_print_errors_fp(stdout);  
             printf("ssl_ctx_use_certificate_file failed.\r\n");  
             //goto free_ctx;
@@ -387,10 +381,9 @@ printf("test4");
             return 0;  
         }  
   
-printf("test5");
       
     	/* Load Private Key */  
-    	if (SSL_CTX_use_PrivateKey_file(ctx, CLIENT_KEY_FILE, SSL_FILETYPE_PEM) <= 0) {  
+    	if (SSL_CTX_use_PrivateKey_file(ctx, CLIENT_KEY_FILE2, SSL_FILETYPE_PEM) <= 0) {  
             ERR_print_errors_fp(stdout);  
             printf("ssl_ctx_use_privatekey_file failed.\r\n");  
             //goto free_ctx;
@@ -399,7 +392,6 @@ printf("test5");
             return 0;
         }  
   
-printf("test6");
       
     	/* Check the validity of Private Key */  
     	if (!SSL_CTX_check_private_key(ctx)) {  
@@ -410,7 +402,7 @@ printf("test6");
             SSL_CTX_free(ctx);
             return 0;  
     	}
-printf("test7");
+
     	/* Create the connection */
     	sslbio = BIO_new_ssl_connect(ctx);
     	/* Get SSL from sslbio */
@@ -435,7 +427,7 @@ printf("test7");
     	}
     	else
     	{
-            printf("connent to server successful!\n");
+            printf("Connection to server successful!\n");
     	}
 
     	/* Verify Server Certificate Validity */

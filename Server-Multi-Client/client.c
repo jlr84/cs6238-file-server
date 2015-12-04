@@ -1,5 +1,6 @@
 #include <stdio.h>  
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>  
 #include <assert.h>  
@@ -10,7 +11,8 @@
 #include <openssl/bio.h> 
 #include <openssl/ssl.h>  
 #include <openssl/err.h>  
-  
+#include <math.h>
+ 
 #define BUF_SIZE   (4 * 1024)  
 static char buffer[BUF_SIZE + 1];
 #define NAME_SIZE  32
@@ -36,6 +38,87 @@ char *imenu[] = {
     NULL,
 };
 
+// STRING SPLIT - Splits string to tokens based on delimiter
+char **str_split(const char* str, const char* delim, size_t* numtokens) {
+
+    // copy the original string so that we don't overwrite parts of it
+    // (don't do this if you don't need to keep the old line,
+    // as this is less efficient)
+    char *s = strdup(str);
+
+    // these three variables are part of a very common idiom to
+    // implement a dynamically-growing array
+
+    size_t tokens_alloc = 1;
+    size_t tokens_used = 0;
+    char **tokens = calloc(tokens_alloc, sizeof(char*));
+    char *token, *strtok_ctx;
+    for (token = strtok_r(s, delim, &strtok_ctx);
+            token != NULL;
+            token = strtok_r(NULL, delim, &strtok_ctx)) {
+        // check if we need to allocate more space for tokens
+        if (tokens_used == tokens_alloc) {
+            tokens_alloc *= 2;
+            tokens = realloc(tokens, tokens_alloc * sizeof(char*));
+        }
+        tokens[tokens_used++] = strdup(token);
+    }
+
+    // cleanup
+    if (tokens_used == 0) {
+        free(tokens);
+        tokens = NULL;
+    } else {
+        tokens = realloc(tokens, tokens_used * sizeof(char*));
+    }
+    *numtokens = tokens_used;
+    free(s);
+    return tokens;
+}
+
+///STRING SPLIT to Integer - Split comma separated string into integers
+int str_to_ints(char* fstring, int features[]) {
+
+    char **tokens2;
+    size_t numtokens;
+
+    tokens2 = str_split(fstring, ";", &numtokens);
+
+    size_t i;
+    for ( i = 0; i < numtokens; i++) {
+        features[i] = atoi(tokens2[i]);
+        free(tokens2[i]);
+    }
+
+    return numtokens;
+}
+
+
+static void *recv_data(SSL *ssl, BIO *client)
+{
+    int len = 0;
+
+    memset(buffer,0,4096);
+    len = BIO_read(client,buffer,4096);
+    printf("%s\n",buffer);
+    switch(SSL_get_error(ssl,len))
+    {
+        case SSL_ERROR_NONE:
+            break;
+        default:
+            printf("Read Problem!\n");
+            exit(0);
+    }
+    if(!strcmp(buffer,"\r\n")||!strcmp(buffer,"\n"))
+    {
+        exit(0);
+    }
+    BIO_write(client,buffer,len);
+    printf("The buffer was the following:\n");
+    printf("%s\n",buffer);
+    //process_input(ssl, client, buffer);
+    printf("That was the end of the buffer.\n");
+} 
 
 static int getLine (char *prmpt, char *buff, size_t sz) {
     int ch, extra;
@@ -106,6 +189,51 @@ void ShowCerts(SSL * ssl)
     }  
 }
 
+int clean_stdin()
+{
+    while (getchar()!='\n');
+    return 1;
+}
+
+// Get a choice from user given array of suitable integers
+int getintchoice(char *greet, int choices[], int opns)
+{
+    int chosen = 0;
+    int selected = 0;
+    int i;
+
+    printf("\nChoice: %s\n",greet);
+    do {
+	
+	//Get user choice
+    	char c;
+    	do
+    	{  
+            printf("Enter choice: ");
+
+    	} while (((scanf("%d%c", &selected, &c)!=2 || c!='\n') && clean_stdin()) || selected<1 || selected>99999);
+
+	printf("'%d' selected.\n", selected);
+        
+	for (i = 0; i < opns; i++) {
+            if(selected == choices[i]) {
+                chosen = 1;
+                break;
+            }
+        }
+        if(!chosen) {
+            printf("Incorrect choice, select again.\n");
+	    printf("Options include the following:\n");
+	    for (i = 0; i < opns; i++) {
+		printf("%d  ",choices[i]);
+	    }
+	    printf("\n");
+        }
+    } while(!chosen);
+    return selected;
+}
+
+// Get a choice from user given a menu option
 char getchoice(char *greet, char *choices[])
 {
     int chosen = 0;
@@ -151,7 +279,7 @@ void choiceProcess (BIO *sslbio, char *buffer, char choice)
         length = strlen(buffer);
     }
     buffer[length] = '\0';
-    printf("%s\n", buffer);
+    printf("'%s', acknowledged by server.\n", buffer);
 }
 
 void clientTerminate (BIO *sslbio, char *buffer)
@@ -249,19 +377,107 @@ int send_file(const char* file_name, SSL* ssl) {
 
 // This is a function that checks out a file from the serverr
 // - RETURNS 0 in case of success, 1 otherwise
-int checkout_file(SSL* ssl) {
+int checkout_file(SSL* ssl, BIO *sslbio, char *buffer) {
 
    FILE* file;            // pointer to the file to be received
    int ret;
+   int length;
 
-   /* Sending the client name */
-   ret = send_buffer(ssl, (unsigned char*)CLIENT_NAME, strlen(CLIENT_NAME));
-   if(ret != 0){
-      fprintf(stderr, "Error trasmitting the client name\n ");
-      return 1;
-   }
+    // Sending the client name
+   // BIO_write(sslbio, CLIENT_NAME, strlen(CLIENT_NAME));
 
-   return 0;
+    // Receive number of options
+    memset(buffer,0,4096);
+    length = BIO_read(sslbio, buffer, BUF_SIZE);
+    if(length <= 0)
+    {
+        strcpy(buffer, "No message");
+        length = strlen(buffer);
+    }
+    buffer[length] = '\0';
+    printf("\nSelect file number to check out file.\n");
+    printf("You have %s option(s):\n", buffer); 
+    int opns = atoi(buffer);
+    
+    if ( opns < 1 ) {
+        //No files to choose from.
+        printf("You have ZERO files stored at server...\n");
+	printf("Unable to check-out file: Choose a different option.\n");
+	exit(1);
+    }
+
+    // If files are present, receive file options
+    printf("\nFILE UID | FILE NAME | FILE OWNER\n");
+    int i;
+    for (i = 0; i < opns; i++) {
+        memset(buffer,0,4096);
+        length = BIO_read(sslbio, buffer, BUF_SIZE);
+        if(length <= 0)
+        {
+            strcpy(buffer, "No message");
+            length = strlen(buffer);
+        }
+        buffer[length] = '\0';
+        printf("%s\n", buffer); 
+    }
+
+    // Receive deliminated list of option numbers
+    memset(buffer,0,4096);
+    length = BIO_read(sslbio, buffer, BUF_SIZE);
+    if(length <= 0)
+    {
+        strcpy(buffer, "No message");
+        length = strlen(buffer);
+    }
+    buffer[length] = '\0';
+
+    // Tokenize options
+    int options[opns];
+    int numtokens = str_to_ints(buffer, options);
+/*    printf("Number of Options: %d\n",numtokens);
+    for ( i = 0; i < numtokens; i++) {
+        printf("Integer %d: %d\n",i+1,options[i]);
+    }
+*/  
+    // Select Option, i.e., file UID choice
+    int filechoice =  getintchoice("Select FILE UID to checkout", options, opns);
+    length = floor(log10(abs(filechoice))) + 1;
+    char sfile[length];
+    sprintf(sfile, "%d", filechoice);
+
+    // Send File UID to Server
+    BIO_write(sslbio, sfile, length);
+
+    // Get file name from Server
+    memset(buffer,0,4096);
+    length = BIO_read(sslbio, buffer, BUF_SIZE);
+    if(length <= 0)
+    {
+        strcpy(buffer, "No message");
+        length = strlen(buffer);
+    }
+    buffer[length] = '\0';
+    printf("Saving file '%s' to local disk.\n", buffer);
+
+    //INSERT SAVING FILE TO DISK
+
+    // Get file data from Server
+    memset(buffer,0,4096);
+    length = BIO_read(sslbio, buffer, BUF_SIZE);
+    if(length <= 0)
+    {
+        strcpy(buffer, "No message");
+        length = strlen(buffer);
+    }
+    buffer[length] = '\0';
+    printf("Plain text received:\n%s\n",buffer);
+
+
+
+
+
+
+    return 0;
 }
   
 int main(int argc, char **argv)  
@@ -284,13 +500,13 @@ int main(int argc, char **argv)
         return -1;  
     }
 
-    if( gethostname(hostname,sizeof(hostname)) )
+/*    if( gethostname(hostname,sizeof(hostname)) )
     {
         printf("gethostname error\n");
         return -1;
     }
     printf("localhost name:%s\n",hostname);
-    
+  */  
     if (strlen(argv[1]) >= NAME_SIZE) {
         fprintf(stderr, "%s is too long! \nPick a shorter client name.\n",argv[1]);
     } else {
@@ -348,13 +564,14 @@ int main(int argc, char **argv)
 	printf("Initializing connection...\n");
     
 	// NOTE: 45 is the max length of a IPv4 address
-        getInput(server, "Enter hostname to connect \n (e.g., '127.0.0.1')", 15);
+        getInput(server, "Enter server hostname to connect \n (e.g., '127.0.0.1')", 15);
     	SSL_library_init();  
     	ERR_load_BIO_strings();
     	ERR_load_SSL_strings();  
     	SSL_load_error_strings();
     	OpenSSL_add_all_algorithms();
-    	ctx = SSL_CTX_new(SSLv3_client_method());
+	ctx = SSL_CTX_new(SSLv3_client_method()); 
+//    	ctx = SSL_CTX_new(SSLv3_method());
     	  
     	//ctx = SSL_CTX_new(meth);  
     	assert(ctx != NULL);  
@@ -444,8 +661,8 @@ int main(int argc, char **argv)
     	}
 
     	//Send hostname to server
-    	printf("Send hostname to server:\n");
-    	BIO_write(sslbio, hostname, strlen(hostname));
+    	printf("Sending client name to server.\n");
+    	BIO_write(sslbio, CLIENT_NAME, strlen(CLIENT_NAME));
   
     	do
     	{
@@ -462,7 +679,7 @@ int main(int argc, char **argv)
             {
                 printf("Check-out function will be executed\n");
                 choiceProcess (sslbio, buffer, choice);
-		ret = checkout_file(ssl);
+		ret = checkout_file(ssl, sslbio, buffer);
             }
             else if (choice == 'c')
             {

@@ -116,14 +116,41 @@ void finish_with_error(MYSQL *con)
   exit(1);        
 }
 
-static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *choice)
+// This is a function helper that sends the buffer 
+int send_buffer(SSL* ssl, const unsigned char* buffer, int buf_len){
+   int ret;
+
+   /* Sending the buffer length */
+/*   ret = SSL_write(ssl, &buf_len, sizeof(buf_len));
+   if(ret < sizeof(buf_len)){
+      fprintf(stderr, "Error: SSL_write returned %d\n", ret);
+      fprintf(stderr, "SSL_get_error -> %d\n", SSL_get_error(ssl, ret));
+      return 1;
+   }
+*/
+   /* Sending the buffer content */
+   ret = SSL_write(ssl, buffer, buf_len);
+   if(ret < buf_len){
+      fprintf(stderr, "Error: SSL_write returned %d\n", ret);
+      fprintf(stderr, "SSL_get_error -> %d\n", SSL_get_error(ssl, ret));
+      return 1;
+   }
+
+   return 0;
+}
+
+static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char *CLIENT_NAME)
 {
-    char buffer[MAXBUF];
     int len = 0;
-    char query1[] = "SELECT Id, Name FROM Files WHERE Owner=";
+    int ret;
+    char query1[] = "SELECT Id, Name, Owner FROM Files WHERE Owner=";
+    char query2[] = "SELECT Location FROM Files WHERE Id=";
+    char query3[] = "SELECT Name FROM Files WHERE Id=";
+    FILE* file;
+    int msg_size;
+    unsigned char* clear_buf; // buffer containing the plaintext
 
-
-    if (choice[0] == 'a')
+    if (buffer[0] == 'a')
     {
         printf("Check-in function executing\n");
         // Get the file name //
@@ -156,29 +183,19 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *choice)
         printf("%s\n",buffer);
 
     }
-    else if (choice[0] == 'b')
+    else if (buffer[0] == 'b')
     {
         printf("Check-out function will be executed\n");
-        // Get the client name //
-        memset(buffer,0,1024);
-        len = BIO_read(client,buffer,1024);
-        switch(SSL_get_error(ssl,len))
-        {
-            case SSL_ERROR_NONE:
-                break;
-            default:
-                printf("Read Problem!\n");
-                exit(0);
-        }
-        BIO_write(client,buffer,len);
-        printf("The client name asking to check out file:\n");
-        printf("%s\n",buffer);
-	//Make query
-	char newquery[strlen(buffer) + strlen(query1) +3];
+        // Send acknowledgement to client 
+	BIO_write(client,buffer,strlen(buffer));
+
+	// Query database for checkout file options
+	char newquery[strlen(CLIENT_NAME) + strlen(query1) +3];
         strcpy(newquery,query1);
 	strcat(newquery,"'");
-	strcat(newquery,buffer);
+	strcat(newquery,CLIENT_NAME);
 	strcat(newquery,"'");
+	//printf("Query: %s\n",newquery);
   	if (mysql_query(con, newquery)) 
   	{
       	    finish_with_error(con);
@@ -189,25 +206,126 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *choice)
       	    finish_with_error(con);
   	}
         int num_fields = mysql_num_fields(result);
-        MYSQL_ROW row;
-  	while ((row = mysql_fetch_row(result))) 
-  	{ 
-	    int i;
-            for( i = 0; i < num_fields; i++) 
-      	    { 
-          	printf("%s ", row[i] ? row[i] : "NULL"); 
-      	    } 
-            printf("\n"); 
+        int num_rows = mysql_num_rows(result);
+
+        /* Sending the number of rows*/
+        int length = floor(log10(abs(num_rows))) + 1;
+	char snum[length];
+        sprintf(snum, "%d", num_rows);
+	printf("Total Rows: %s\n",snum);
+	BIO_write(client,snum,length);
+  
+        /* Send options and build delimated file list*/
+	MYSQL_ROW row;
+	char list[MAXBUF];
+	memset(list, '\0', sizeof(list));
+  	while ((row = mysql_fetch_row(result)))
+  	{
+            strncat(list, row[0], strlen(row[0]) + 1);
+      	    strncat(list, ";", 2);
+
+      	    memset(buffer, '\0', sizeof(buffer));
+            strncat(buffer, row[0], strlen(row[0]) +1);
+            strncat(buffer, " | ", 4);
+	    strncat(buffer, row[1], strlen(row[1]) +1); 
+	    strncat(buffer, " | ", 4);
+	    strncat(buffer, row[2], strlen(row[2]) +1);
+            printf("%s\n",buffer);
+	    BIO_write(client,buffer,strlen(buffer));
   	}
+
+	/* Send deliminated file list */
+	BIO_write(client,list,strlen(list));
     	mysql_free_result(result);
+
+        // Get the File UID
+        memset(buffer,0,1024);
+        len = BIO_read(client,buffer,1024);
+        switch(SSL_get_error(ssl,len))
+        {
+            case SSL_ERROR_NONE:
+                break;
+            default:
+                printf("Read Problem!\n");
+                exit(0);
+        }
+        printf("Client '%s' checking out FILE UID '%s'.\n",CLIENT_NAME,buffer);
+
+        //Make query for file location
+	char newquery2[strlen(buffer) + strlen(query2) +3];
+        strcpy(newquery2,query2);
+	strcat(newquery2,buffer);
+  	if (mysql_query(con, newquery2)) 
+  	{
+      	    finish_with_error(con);
+        }
+  	result = mysql_store_result(con);
+  	if (result == NULL) 
+  	{
+      	    finish_with_error(con);
+  	}
+  	row = mysql_fetch_row(result); 
+	// row[0] now contains the file we need to transfer
+        
+	/* Open the file to be sent */
+	file = fopen(row[0], "r");
+	if(file == NULL) {
+	    fprintf(stderr, "File not found: '%s'\n", row[0]);
+	    exit(1);
+	}
+	mysql_free_result(result);
+
+        //Make query for file location
+	char newquery3[strlen(buffer) + strlen(query3) +3];
+        strcpy(newquery3,query3);
+	strcat(newquery3,buffer);
+  	if (mysql_query(con, newquery3)) 
+  	{
+      	    finish_with_error(con);
+        }
+  	result = mysql_store_result(con);
+  	if (result == NULL) 
+  	{
+      	    finish_with_error(con);
+  	}
+  	row = mysql_fetch_row(result); 
+	// row[0] now contains the file name
+        
+	/* Retrieve the file size */
+   	fseek(file, 0, SEEK_END);
+   	msg_size = ftell(file);
+   	fseek(file, 0, SEEK_SET);
+
+   	/* Reading the file to be sent */
+   	clear_buf = malloc(msg_size + 1);
+   	ret = fread(clear_buf, 1, msg_size, file);
+   	if(ret < msg_size) {
+      	    fprintf(stderr, "Error reading the file\n");
+      	    exit(1);
+   	}
+   	clear_buf[msg_size] = '\0';
+   	fclose(file);
+
+   	printf("\nPlaintext to be sent:\n%s\n", clear_buf);
+
+   	/* Sending the file name */
+	BIO_write(client,row[0],strlen(row[0])); 
+   
+   	/* Sending the file */
+	BIO_write(client,clear_buf, msg_size);
+   	printf("File %s sent:\n   original size is %d bytes.\n", row[0], msg_size);
+	mysql_free_result(result);
+        
+
+
 
 
     }
-    else if (choice[0] == 'c')
+    else if (buffer[0] == 'c')
     {
         printf("Delegate function will be executed\n");
     }
-    else if (choice[0] == 'd')
+    else if (buffer[0] == 'd')
     {
         printf("Safe-delete function will be executed\n");
     } 
@@ -222,10 +340,14 @@ static void *recv_data(MYSQL *con, SSL *ssl, BIO *client)
     char buffer[MAXBUF];
     int len = 0;
 
-    //Get Client hostname for use
+    //Get Client Name for use
     memset(buffer,0,1024);
     len = BIO_read(client,buffer,1024);
-    printf("%s\n",buffer);
+    printf("Client '%s' CONNECTED.\n",buffer);
+    char CLIENT_NAME[len+1];
+    strcpy(CLIENT_NAME,buffer);
+    CLIENT_NAME[len+1] = '\0';
+//    printf("ClientName: %s<<\n",CLIENT_NAME);
 
     for(;;)
     {
@@ -247,11 +369,11 @@ static void *recv_data(MYSQL *con, SSL *ssl, BIO *client)
         {
             break;
         }                       
-        BIO_write(client,buffer,len);
-        printf("The buffer was the following:\n");
-        printf("%s\n",buffer);
-        process_input(con, ssl, client, buffer);
-        printf("That was the end of the buffer.\n");
+        //BIO_write(client,buffer,len);
+        //printf("The buffer was the following:\n");
+        printf("Input Rec'd: %s\nProcessing...\n",buffer);
+        process_input(con, ssl, client, buffer, CLIENT_NAME);
+        //printf("That was the end of the buffer.\n");
     }
 } 
       

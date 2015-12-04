@@ -45,6 +45,19 @@ char *cimenu[] = {
     NULL,
 };
 
+char *smenu[] = {
+    "a - CONFIDENTIALITY",
+    "b - INTEGRITY",
+    "c - NONE",
+    NULL,
+};
+
+char *ynmenu[] = {
+    "y - YES",
+    "n - NO",
+    NULL,
+};
+
 // STRING SPLIT - Splits string to tokens based on delimiter
 char **str_split(const char* str, const char* delim, size_t* numtokens) {
 
@@ -321,19 +334,12 @@ int send_buffer(SSL* ssl, const unsigned char* buffer, int buf_len){
   
 
 // This is a function that sends a file to the server
-// - INPUT file_name = name of the file to be sent
-// - INPUT sk = socket through which the file is sent
-// - RETURNS 0 in case of success, 1 otherwise
-int send_file(const char* file_name, SSL* ssl) {
+int send_file(const char* file_name, BIO *sslbio) {
 
    FILE* file;      // pointer to the file to be sent
    int msg_size;          // size of the file to be sent
 
    unsigned char* clear_buf; // buffer containing the plaintext
- //  BIO* bio;
- //  SSL_CTX* ctx;
- //  SSL* ssl;
-
    int ret;
 
    /* Open the file to be sent */
@@ -360,22 +366,11 @@ int send_file(const char* file_name, SSL* ssl) {
 
    printf("\nPlaintext to be sent:\n%s\n", clear_buf);
 
-
-   //SSL_set_bio(ssl, bio, bio);
-
    /* Sending the file name */
-   ret = send_buffer(ssl, (unsigned char*)file_name, strlen(file_name));
-   if(ret != 0){
-      fprintf(stderr, "Error trasmitting the file name\n ");
-      return 1;
-   }
+   BIO_write(sslbio, file_name, strlen(file_name));
 
    /* Sending the file */
-   ret = send_buffer(ssl, clear_buf, msg_size);
-   if(ret != 0) {
-      fprintf(stderr, "Error transmitting the file\n ");
-      return 1;
-   }
+   BIO_write(sslbio, clear_buf, msg_size);
 
    printf("\nFile %s sent:\n   original size is %d bytes.\n", file_name, msg_size);
 
@@ -385,7 +380,7 @@ int send_file(const char* file_name, SSL* ssl) {
 // This is a function that checks in a file to the server
 int checkin_file(SSL* ssl, BIO *sslbio, char *buffer) {
     char choice;
-    int ret;    
+    int ret,length;    
 
     choice = getchoice("Please select an action", cimenu);
     printf("You have chosen: %c\n", choice);
@@ -399,6 +394,103 @@ int checkin_file(SSL* ssl, BIO *sslbio, char *buffer) {
     {
     	printf("Check-in By File UID\n");
         choiceProcess (sslbio, buffer, choice);
+	
+	// Receive the number of File UID options 
+        memset(buffer,0,4096);
+    	length = BIO_read(sslbio, buffer, BUF_SIZE);
+    	if(length <= 0)
+    	{
+    	    strcpy(buffer, "No message");
+    	    length = strlen(buffer);
+    	}
+    	buffer[length] = '\0';
+    	printf("You have access to %s file(s) on the server that are\n", buffer);
+	printf("available for you to check in by File UID.\n"); 
+    	int opns = atoi(buffer);
+    
+    	if ( opns < 1 ) {
+    	    //No files to choose from.
+    	    printf("You have access to ZERO files stored at server...\n");
+	    printf("Unable to check-in by File UID: Choose a different option.\n");
+	    printf("Recommend check-in by filename instead to receive new UID from server.\n");
+	    exit(1);
+	}
+
+	// Receive deliminated list of option numbers
+	memset(buffer,0,4096);
+    	length = BIO_read(sslbio, buffer, BUF_SIZE);
+    	if(length <= 0)
+    	{
+            strcpy(buffer, "No message");
+            length = strlen(buffer);
+    	}
+    	buffer[length] = '\0';
+
+    	// Tokenize options
+    	int options[opns];
+    	int numtokens = str_to_ints(buffer, options);
+    
+    	// Select Option, i.e., file UID choice
+    	int filechoice =  getintchoice("Enter File UID you wish to check-in", options, opns);
+    	length = floor(log10(abs(filechoice))) + 1;
+    	char sfile[length];
+    	sprintf(sfile, "%d", filechoice);
+
+    	// Send File UID to Server
+    	BIO_write(sslbio, sfile, length);
+
+	// Receive File Name from Server
+	memset(buffer,0,4096);
+    	length = BIO_read(sslbio, buffer, BUF_SIZE);
+    	if(length <= 0)
+    	{
+    	    strcpy(buffer, "No message");
+    	    length = strlen(buffer);
+    	}
+    	buffer[length] = '\0';
+
+	printf("Preparing to check-in File UID '%d', Filename '%s'\n",filechoice,buffer);
+	printf("Has your filename changed since last upload? (Is it different than listed here?)\n");
+	choice = getchoice("Please select an action", ynmenu);
+
+	char filename[BUF_SIZE];
+
+	if (choice == 'y') 
+	{
+	    getInput(filename, "Enter the new filename \n (e.g., 'testfile.txt')", 32);
+	}
+	else //File name hasn't changed 
+	{
+	    strcpy(filename,buffer);
+	}
+
+	char SecurityFlag[16];
+	choice = getchoice("Select 'SecurityFlag' for this file",smenu);
+	if (choice == 'a') {
+	    strcpy(SecurityFlag, "CONFIDENTIALITY");
+	} else if (choice == 'b') {
+	    strcpy(SecurityFlag, "INTEGRITY");
+	} else {
+	    strcpy(SecurityFlag, "NONE");
+	}
+
+	printf("SecurityFlag confirmed as '%s'\n",SecurityFlag);
+	BIO_write(sslbio, SecurityFlag, strlen(SecurityFlag));
+	
+	// Send the file to the server
+	ret = send_file(filename, sslbio);
+
+        // Get Server confirmation
+    	memset(buffer,0,4096);
+    	length = BIO_read(sslbio, buffer, BUF_SIZE);
+    	if(length <= 0)
+    	{
+    	    strcpy(buffer, "No message");
+    	    length = strlen(buffer);
+    	}
+    	buffer[length] = '\0';
+        printf("Server confirmation: %s\n",buffer);
+
     }
     else if (choice == 'c')
     {
@@ -472,11 +564,7 @@ int checkout_file(SSL* ssl, BIO *sslbio, char *buffer) {
     // Tokenize options
     int options[opns];
     int numtokens = str_to_ints(buffer, options);
-/*    printf("Number of Options: %d\n",numtokens);
-    for ( i = 0; i < numtokens; i++) {
-        printf("Integer %d: %d\n",i+1,options[i]);
-    }
-*/  
+    
     // Select Option, i.e., file UID choice
     int filechoice =  getintchoice("Select FILE UID to checkout", options, opns);
     length = floor(log10(abs(filechoice))) + 1;
@@ -519,7 +607,7 @@ int checkout_file(SSL* ssl, BIO *sslbio, char *buffer) {
     fwrite(buffer, length, 1, file);
     // Close file.
     fclose(file);
-    printf("File Saved.");
+    printf("File Saved.\n");
 
     // Send confirmation to server
     char message[] = "File Saved.";
@@ -559,13 +647,6 @@ int main(int argc, char **argv)
         return -1;  
     }
 
-/*    if( gethostname(hostname,sizeof(hostname)) )
-    {
-        printf("gethostname error\n");
-        return -1;
-    }
-    printf("localhost name:%s\n",hostname);
-  */  
     if (strlen(argv[1]) >= NAME_SIZE) {
         fprintf(stderr, "%s is too long! \nPick a shorter client name.\n",argv[1]);
     } else {

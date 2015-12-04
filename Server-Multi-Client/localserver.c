@@ -22,93 +22,6 @@
 #define SERVER_CERT_FILE "cert/server.pem"  
 #define SERVER_KEY_FILE  "cert/server.key"
 
-////////////////////////////////
-//CLIENT-SIDE CODE INSERTED HERE
-////////////////////////////////
-
-#define BUF_SIZE (4 * 1024)
-static char buffer[BUF_SIZE + 1];
-
-char *menu[] = {
-    "a - Check-in",
-    "b - Check-out",
-    "c - Delegate",
-    "d - Safe-delete",
-    "q - Terminate",
-    NULL,
-};
-
-void ShowCerts(SSL * ssl)
-{
-    X509 *cert;
-    char *line;
-
-    cert = SSL_get_peer_certificate(ssl);
-    if (cert != NULL) {
-        printf("certificate info:\n");  
-        line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-        printf("certificate: %s\n", line);  
-        free(line);  
-        line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
-        printf("author: %s\n", line);  
-        free(line);  
-        X509_free(cert);  
-    } else {
-        printf("nothing\n");  
-    }  
-}   
-
-char getchoice(char *greet, char *choices[])
-{   
-    int chosen = 0; 
-    char selected;
-    char **option;
-
-    do {
-        printf("Choice: %s\n",greet);
-        option = choices;
-        while(*option) {
-            printf("%s\n",*option);
-            option++;
-        }
-        selected = getchar();
-        getchar();
-        option = choices;
-        while(*option) {
-            //printf("The option is %c\n", *option[0]);
-            if(selected == *option[0]) {
-                chosen = 1;
-                break;
-            }
-            option++;
-        }
-        if(!chosen) {
-            printf("Incorrect choice, select again\n");
-        }
-    } while(!chosen);
-    return selected;
-}
-
-void choiceProcess (BIO *sslbio, char *buffer, char choice)
-{
-    int length;
-
-    memset(buffer, '\0', BUF_SIZE);
-    buffer[0] = choice;
-    BIO_write(sslbio, buffer, strlen(buffer));
-    length = BIO_read(sslbio, buffer, BUF_SIZE);
-    if(length <= 0)
-    {
-        strcpy(buffer, "No message");
-        length = strlen(buffer);
-    }
-    buffer[length] = '\0';
-    printf("%s\n", buffer);
-}
-
-//////////////////////////////////
-//END OF CLIENT-SIDE CODE INSERTED
-//////////////////////////////////
 void finish_with_error(MYSQL *con)
 {
   fprintf(stderr, "%s\n", mysql_error(con));
@@ -149,9 +62,14 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
     char query4[] = "INSERT INTO ";
     char query5[] = "(FileId) VALUES(";
     char query6[] = "UPDATE Files SET CheckedOut=True WHERE Id=";
+    char query7[] = "UPDATE Files SET CheckedOut=False, Name='";
     FILE* file;
     int msg_size;
     unsigned char* clear_buf; // buffer containing the plaintext
+    char fId[MAXBUF];
+    char fName[MAXBUF];
+    char fSecurity[MAXBUF];
+    char fLocation[MAXBUF];
 
     if (buffer[0] == 'a')
     {
@@ -184,6 +102,153 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
     	    printf("Check-in By File UID\n");
             // Send acknowledgement to client 
 	    BIO_write(client,buffer,strlen(buffer));
+	
+	    //Query database to get available options
+	    char newquery[strlen(CLIENT_NAME) + strlen(query1) +3];
+            strcpy(newquery,query1);
+	    strcat(newquery,"'");
+	    strcat(newquery,CLIENT_NAME);
+	    strcat(newquery,"'");
+  	    if (mysql_query(con, newquery)) 
+  	    {
+      	        finish_with_error(con);
+            }
+  	    MYSQL_RES *result = mysql_store_result(con);
+  	    if (result == NULL) 
+  	    {
+      	        finish_with_error(con);
+  	    }
+            int num_rows = mysql_num_rows(result);
+
+            /* Sending the number of rows*/
+            int length = floor(log10(abs(num_rows))) + 1;
+	    char snum[length];
+            sprintf(snum, "%d", num_rows);
+            BIO_write(client,snum,length);
+
+            /* Build delimated file list*/
+	    MYSQL_ROW row;
+	    char list[MAXBUF];
+	    memset(list, '\0', sizeof(list));
+  	    while ((row = mysql_fetch_row(result)))
+  	    {
+                strncat(list, row[0], strlen(row[0]) + 1);
+      	        strncat(list, ";", 2);
+
+  	    }
+
+	    /* Send deliminated file list */
+	    BIO_write(client,list,strlen(list));
+    	    mysql_free_result(result);
+
+	    // Get the File UID
+            memset(buffer,0,1024);
+            len = BIO_read(client,buffer,1024);
+            switch(SSL_get_error(ssl,len))
+            {
+                case SSL_ERROR_NONE:
+                    break;
+                default:
+                    printf("Read Problem!\n");
+                    exit(0);
+            }
+            printf("Client checking IN FILE UID '%s'.\n",buffer);
+	    strcpy(fId,buffer);
+
+	    //Make query for file name
+	    char newquery3[strlen(buffer) + strlen(query3) +3];
+            strcpy(newquery3,query3);
+	    strcat(newquery3,buffer);
+  	    if (mysql_query(con, newquery3)) 
+  	    {
+      	        finish_with_error(con);
+            }
+  	    result = mysql_store_result(con);
+  	    if (result == NULL) 
+  	    {
+      	        finish_with_error(con);
+  	    }
+  	    row = mysql_fetch_row(result); 
+	    // row[0] now contains the file name
+
+	    //Send file name
+	    BIO_write(client,row[0],strlen(row[0]));
+            mysql_free_result(result); 
+
+	    // Get SecurityFlag from Client
+	    memset(buffer,0,MAXBUF);
+	    length = BIO_read(client, buffer, MAXBUF);
+	    if(length <= 0)
+	    { 
+		strcpy(buffer, "No message");
+		length = strlen(buffer);
+	    }
+	    buffer[length] = '\0';
+	    printf("Saving file with '%s' SecurityFlag\n",buffer);
+	    strcpy(fSecurity,buffer);
+
+
+	    // Get file name from Client
+	    memset(buffer,0,MAXBUF);
+	    length = BIO_read(client, buffer, MAXBUF);
+	    if(length <= 0)
+	    {
+	        strcpy(buffer, "No message");
+	        length = strlen(buffer);
+	    }
+	    buffer[length] = '\0';
+	    printf("Saving file '%s' to local disk.\n", buffer);
+	    strcpy(fName, buffer);
+	    strcat(fLocation,"./");
+	    strcat(fLocation,CLIENT_NAME);
+	    strcat(fLocation,"/");
+	    strcat(fLocation,fName);
+	
+	    // Open file
+	    file = fopen(fLocation, "w+");
+	    if(file == NULL) {
+	      fprintf(stderr, "File not found: '%s'\n", buffer);
+	      exit(1);
+	    }
+	
+	    // Get file data from Server
+	    memset(buffer,0,MAXBUF);
+	    length = BIO_read(client, buffer, MAXBUF);
+	    if(length <= 0)
+	    {
+	        strcpy(buffer, "No message");
+	        length = strlen(buffer);
+	    }
+	    buffer[length] = '\0';
+	    printf("Plain text received:\n%s\n",buffer);
+	
+	    // Writing to file
+	    fwrite(buffer, length, 1, file);
+	    // Close file.
+	    fclose(file);
+	    printf("File Saved.\n");
+
+	    // Send confirmation to Client
+	    char message[] = "File Saved.";
+	    BIO_write(client, message, strlen(message));
+
+	    //Update Database info.
+	    char newquery7[MAXBUF];
+            strcpy(newquery7,query7);
+	    strcat(newquery7,fName);
+	    strcat(newquery7,"', Security='");
+	    strcat(newquery7, fSecurity);
+	    strcat(newquery7,"', Location='");
+	    strcat(newquery7,fLocation);
+	    strcat(newquery7,"' WHERE Id=");
+	    strcat(newquery7,fId);
+	    printf("Final Query:\n%s\n",newquery7);
+	    
+            if (mysql_query(con, newquery7)) 
+  	    {
+      	        finish_with_error(con);
+            }
+
     	}
     	else if (buffer[0] == 'c')
     	{
@@ -597,47 +662,6 @@ int main(int argc, char **argv)
     }
     
 
-////////////////////////////////////
-// CLIENT-SIDE CODE INSERTED HERE //
-////////////////////////////////////
-/*    char choice;
-
-    do
-    {
-        choice = getchoice("Please select an action", menu);
-        printf("You have chosen: %c\n", choice);
-
-        if (choice == 'a')
-        {
-            printf("Check-in function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-
-        }
-        else if (choice == 'b')
-        {
-            printf("Check-out function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-        }
-        else if (choice == 'c')
-        {
-            printf("Delegate function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-        }
-        else if (choice == 'd')
-        {
-            printf("Safe-delete function will be executed\n");
-            choiceProcess (sslbio, buffer, choice);
-        }
-        else
-        {
-            printf("Terminate function will be executed\n");
-        }
-
-    } while (choice != 'q');
-/////////////////////////////
-// END OF CLIENT-SIDE CODE //
-/////////////////////////////
-*/
     BIO_ssl_shutdown(sslbio);
     BIO_free_all(sslbio);
     BIO_free_all(accept);

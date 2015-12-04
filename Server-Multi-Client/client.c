@@ -38,6 +38,13 @@ char *imenu[] = {
     NULL,
 };
 
+char *cimenu[] = {
+    "a - Check-in by filename (you don't know/don't have File UID)",
+    "b - Check-in by File UID",
+    "c - View currently checked-out items",
+    NULL,
+};
+
 // STRING SPLIT - Splits string to tokens based on delimiter
 char **str_split(const char* str, const char* delim, size_t* numtokens) {
 
@@ -375,7 +382,38 @@ int send_file(const char* file_name, SSL* ssl) {
    return 0;
 }
 
-// This is a function that checks out a file from the serverr
+// This is a function that checks in a file to the server
+int checkin_file(SSL* ssl, BIO *sslbio, char *buffer) {
+    char choice;
+    int ret;    
+
+    choice = getchoice("Please select an action", cimenu);
+    printf("You have chosen: %c\n", choice);
+  	
+    if (choice == 'a')
+    {
+	printf("Check-in By filename (NO File UID)\n");
+	choiceProcess (sslbio, buffer, choice);
+    }
+    else if (choice == 'b')
+    {
+    	printf("Check-in By File UID\n");
+        choiceProcess (sslbio, buffer, choice);
+    }
+    else if (choice == 'c')
+    {
+    	printf("View currently checked-out items\n");
+        choiceProcess (sslbio, buffer, choice);
+    }
+    else
+    {
+    	printf("Terminate function will be executed\n");
+    }
+}
+
+
+
+// This is a function that checks out a file from the server
 // - RETURNS 0 in case of success, 1 otherwise
 int checkout_file(SSL* ssl, BIO *sslbio, char *buffer) {
 
@@ -694,7 +732,7 @@ int main(int argc, char **argv)
 	    {
         	printf("Check-in function will be executed\n");
                 choiceProcess (sslbio, buffer, choice);
-                ret = send_file("testFile.txt", ssl);
+                ret = checkin_file(ssl, sslbio, buffer);
             }
             else if (choice == 'b')
             {

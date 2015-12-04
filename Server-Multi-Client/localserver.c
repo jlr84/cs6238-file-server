@@ -156,7 +156,49 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
     if (buffer[0] == 'a')
     {
         printf("Check-in function executing\n");
-        // Get the file name //
+        // Send acknowledgement to client 
+	BIO_write(client,buffer,strlen(buffer));
+
+	// Get sub-menu option
+	memset(buffer,0,strlen(buffer));
+        len = BIO_read(client,buffer,1024);
+	switch(SSL_get_error(ssl,len))
+	{
+	    case SSL_ERROR_NONE:
+               break;
+            default:
+                printf("Read Problem!\n");
+                exit(0);
+        }
+        printf("Client selected '%s'.\n",buffer);
+
+	//Sub-menu options
+ 	if (buffer[0] == 'a')
+    	{
+	    printf("Check-in By filename (NO File UID)\n");
+	    // Send acknowledgement to client 
+	    BIO_write(client,buffer,strlen(buffer));
+        }
+    	else if (buffer[0] == 'b')
+    	{
+    	    printf("Check-in By File UID\n");
+            // Send acknowledgement to client 
+	    BIO_write(client,buffer,strlen(buffer));
+    	}
+    	else if (buffer[0] == 'c')
+    	{
+    	    printf("View currently checked-out items\n");
+            // Send acknowledgement to client 
+	    BIO_write(client,buffer,strlen(buffer));
+        }
+        else
+        {
+    	    printf("Terminate function will be executed\n");
+        }
+
+
+
+  /*      // Get the file name //
         memset(buffer,0,1024);
         len = BIO_read(client,buffer,1024);
         switch(SSL_get_error(ssl,len))
@@ -184,11 +226,11 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
         BIO_write(client,buffer,len);
         printf("File contents:\n");
         printf("%s\n",buffer);
-
+*/
     }
     else if (buffer[0] == 'b')
     {
-        printf("Check-out function will be executed\n");
+        printf("Check-out function executing\n");
         // Send acknowledgement to client 
 	BIO_write(client,buffer,strlen(buffer));
 
@@ -362,10 +404,14 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
     else if (buffer[0] == 'c')
     {
         printf("Delegate function will be executed\n");
+        // Send acknowledgement to client 
+	BIO_write(client,buffer,strlen(buffer));
     }
     else if (buffer[0] == 'd')
     {
         printf("Safe-delete function will be executed\n");
+        // Send acknowledgement to client 
+	BIO_write(client,buffer,strlen(buffer));
     } 
     else 
     {

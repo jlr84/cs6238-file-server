@@ -146,6 +146,9 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
     char query1[] = "SELECT Id, Name, Owner FROM Files WHERE Owner=";
     char query2[] = "SELECT Location FROM Files WHERE Id=";
     char query3[] = "SELECT Name FROM Files WHERE Id=";
+    char query4[] = "INSERT INTO ";
+    char query5[] = "(FileId) VALUES(";
+    char query6[] = "UPDATE Files SET CheckedOut=True WHERE Id=";
     FILE* file;
     int msg_size;
     unsigned char* clear_buf; // buffer containing the plaintext
@@ -251,7 +254,28 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
         }
         printf("Client '%s' checking out FILE UID '%s'.\n",CLIENT_NAME,buffer);
 
-        //Make query for file location
+        // Store information as "checked out" in database
+        char newquery4[strlen(buffer) + strlen(query4) + strlen(query5) + strlen(CLIENT_NAME) +3];
+        strcpy(newquery4,query4);
+	strcat(newquery4,CLIENT_NAME);
+        strcat(newquery4,query5);
+	strcat(newquery4,buffer);
+	strcat(newquery4,")");
+	printf("Query4: %s\n",newquery4);
+	if (mysql_query(con, newquery4))
+	{
+	    finish_with_error(con);
+	}
+        char newquery5[strlen(buffer) + strlen(query6) +3];
+        strcpy(newquery5,query6);
+	strcat(newquery5,buffer);
+	printf("Query5: %s\n",newquery5);
+	if (mysql_query(con, newquery5))
+	{
+	    finish_with_error(con);
+	}
+
+	//Make query for file path
 	char newquery2[strlen(buffer) + strlen(query2) +3];
         strcpy(newquery2,query2);
 	strcat(newquery2,buffer);
@@ -265,7 +289,7 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
       	    finish_with_error(con);
   	}
   	row = mysql_fetch_row(result); 
-	// row[0] now contains the file we need to transfer
+	// row[0] now contains the path of the file we need to transfer
         
 	/* Open the file to be sent */
 	file = fopen(row[0], "r");
@@ -275,7 +299,7 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
 	}
 	mysql_free_result(result);
 
-        //Make query for file location
+        //Make query for file name
 	char newquery3[strlen(buffer) + strlen(query3) +3];
         strcpy(newquery3,query3);
 	strcat(newquery3,buffer);
@@ -316,9 +340,23 @@ static void process_input(MYSQL *con, SSL *ssl, BIO *client, char *buffer, char 
    	printf("File %s sent:\n   original size is %d bytes.\n", row[0], msg_size);
 	mysql_free_result(result);
         
+        // Receiving confirmation
+	memset(buffer,0,1024);
+        len = BIO_read(client,buffer,1024);
+        switch(SSL_get_error(ssl,len))
+        {
+            case SSL_ERROR_NONE:
+                break;
+            default:
+                printf("Read Problem!\n");
+                exit(0);
+        }
+        printf("Client confirmed download: %s\n",buffer);
 
-
-
+ 	// Sending confirmation
+        char message[] = "SUCCESS";
+	BIO_write(client,message,strlen(message));
+        printf("End of Check-Out\n");
 
     }
     else if (buffer[0] == 'c')
@@ -347,7 +385,17 @@ static void *recv_data(MYSQL *con, SSL *ssl, BIO *client)
     char CLIENT_NAME[len+1];
     strcpy(CLIENT_NAME,buffer);
     CLIENT_NAME[len+1] = '\0';
-//    printf("ClientName: %s<<\n",CLIENT_NAME);
+
+    // Create client Table in DB if not present
+    char query1[] = "CREATE TABLE IF NOT EXISTS ";
+    char query2[] = "(Id INT PRIMARY KEY AUTO_INCREMENT, FileId INT)";
+    char newquery[strlen(buffer) + strlen(query1) + strlen(query2) +3];
+    strcpy(newquery,query1);
+    strcat(newquery,buffer);
+    strcat(newquery,query2);
+    if (mysql_query(con, newquery)) {
+      finish_with_error(con);
+    }
 
     for(;;)
     {

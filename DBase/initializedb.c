@@ -28,15 +28,15 @@ int main(int argc, char **argv)
       finish_with_error(con);
   }
   
-  if (mysql_query(con, "CREATE TABLE Files(Id INT PRIMARY KEY AUTO_INCREMENT, Name TEXT, Security TEXT, Location TEXT, Owner TEXT, Delegations INT)")) {      
+  if (mysql_query(con, "CREATE TABLE Files(Id INT PRIMARY KEY AUTO_INCREMENT, Name TEXT, Security TEXT, Location TEXT, Owner TEXT, Delegations INT, CheckedOut BOOL)")) {      
       finish_with_error(con);
   }
   
-  if (mysql_query(con, "INSERT INTO Files VALUES(1,'testfile1.txt','NONE','/user1/testfile1.txt','user1',0)")) {
+  if (mysql_query(con, "INSERT INTO Files VALUES(1,'testfile1.txt','NONE','./client1/testfile1.txt','user1',0,FALSE)")) {
       finish_with_error(con);
   }
 
-  if (mysql_query(con, "INSERT INTO Files VALUES(2, 'testfile2.txt','NONE','/client/testfile2.txt','client',0)")) {
+  if (mysql_query(con, "INSERT INTO Files VALUES(2, 'testfile2.txt','NONE','./client1/testfile2.txt','client',0,FALSE)")) {
       finish_with_error(con);
   }
 

@@ -459,7 +459,12 @@ int checkout_file(SSL* ssl, BIO *sslbio, char *buffer) {
     buffer[length] = '\0';
     printf("Saving file '%s' to local disk.\n", buffer);
 
-    //INSERT SAVING FILE TO DISK
+    // Open file
+    file = fopen(buffer, "w+");
+    if(file == NULL) {
+      fprintf(stderr, "File not found: '%s'\n", buffer);
+      return 1;
+    }
 
     // Get file data from Server
     memset(buffer,0,4096);
@@ -472,10 +477,26 @@ int checkout_file(SSL* ssl, BIO *sslbio, char *buffer) {
     buffer[length] = '\0';
     printf("Plain text received:\n%s\n",buffer);
 
+    // Writing to file
+    fwrite(buffer, length, 1, file);
+    // Close file.
+    fclose(file);
+    printf("File Saved.");
 
+    // Send confirmation to server
+    char message[] = "File Saved.";
+    BIO_write(sslbio, message, strlen(message));
 
-
-
+    // Receive confirmation from server
+    memset(buffer,0,4096);
+    length = BIO_read(sslbio, buffer, BUF_SIZE);
+    if(length <= 0)
+    {
+        strcpy(buffer, "No message");
+        length = strlen(buffer);
+    }
+    buffer[length] = '\0';
+    printf("File Successfully Checked Out: %s\n",buffer);
 
     return 0;
 }

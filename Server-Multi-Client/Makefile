@@ -12,14 +12,19 @@ SERVER = server
 SOURCE_SERVER = server.c
 CLIENT = client
 SOURCE_CLIENT = client.c
+DATABASE = initdb
+SOURCE_DATABASE = initdb.c
 
-all: $(SERVER) $(CLIENT)
+all: $(SERVER) $(CLIENT) $(DATABASE)
 
 $(SERVER):
-	$(CXX) $(SOURCE_SERVER) -lssl -lcrypto -o $(SERVER)
+	$(CXX) $(SOURCE_SERVER) `mysql_config --cflags --libs` -lssl -lcrypto -o $(SERVER)
 
 $(CLIENT):
-	$(CXX) $(SOURCE_CLIENT) -lssl -lcrypto -o $(CLIENT)
+	$(CXX) $(SOURCE_CLIENT) -lssl -lcrypto -lm -o $(CLIENT)
+
+$(DATABASE): 
+	$(CXX) $(SOURCE_DATABASE) -o $(DATABASE) -std=c99 `mysql_config --cflags --libs`
 
 clean:
-	$(RM) $(SERVER) $(CLIENT) 
+	$(RM) $(SERVER) $(CLIENT) $(DATABASE) 

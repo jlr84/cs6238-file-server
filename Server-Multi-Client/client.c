@@ -41,7 +41,6 @@ char *imenu[] = {
 char *cimenu[] = {
     "a - Check-in by filename (you don't know/don't have File UID)",
     "b - Check-in by File UID",
-    "c - View currently checked-out items",
     NULL,
 };
 
@@ -381,6 +380,7 @@ int send_file(const char* file_name, BIO *sslbio) {
 int checkin_file(SSL* ssl, BIO *sslbio, char *buffer) {
     char choice;
     int ret,length;    
+    char filename[BUF_SIZE];
 
     choice = getchoice("Please select an action", cimenu);
     printf("You have chosen: %c\n", choice);
@@ -389,6 +389,66 @@ int checkin_file(SSL* ssl, BIO *sslbio, char *buffer) {
     {
 	printf("Check-in By filename (NO File UID)\n");
 	choiceProcess (sslbio, buffer, choice);
+
+	getInput(filename, "Enter the filename \n (e.g., 'testfile.txt')", 32);
+
+   	/* Sending the file name */
+   	BIO_write(sslbio, filename, strlen(filename));
+
+	// Receive server status 
+        memset(buffer,0,4096);
+    	length = BIO_read(sslbio, buffer, BUF_SIZE);
+    	if(length <= 0)
+    	{
+    	    strcpy(buffer, "No message");
+    	    length = strlen(buffer);
+    	}
+    	buffer[length] = '\0';
+	printf("BUffer: %s",buffer);
+	if (buffer[0] == '0') {
+	    printf("Server confirms file is not already stored; storing file now.\n");	
+	} else {
+	    printf("Similiar file found in database...\n");
+	    choice = getchoice("Overwrite your old file?", ynmenu);
+	    if ( choice == 'y' ) {
+		char answer[] = "yes";
+		BIO_write(sslbio,answer,strlen(answer));
+	     } else { 
+	        char answer[] = "no";
+		BIO_write(sslbio, answer, strlen(answer));
+	     }
+	}
+
+
+	// Send the file to the server
+	ret = send_file(filename, sslbio);
+
+        // Get Server confirmation
+    	memset(buffer,0,4096);
+    	length = BIO_read(sslbio, buffer, BUF_SIZE);
+    	if(length <= 0)
+    	{
+    	    strcpy(buffer, "No message");
+    	    length = strlen(buffer);
+    	}
+    	buffer[length] = '\0';
+        printf("Server confirmation: %s\n",buffer);
+
+	char SecurityFlag[16];
+	choice = getchoice("Select 'SecurityFlag' for this file",smenu);
+	if (choice == 'a') {
+	    strcpy(SecurityFlag, "CONFIDENTIALITY");
+	} else if (choice == 'b') {
+	    strcpy(SecurityFlag, "INTEGRITY");
+	} else {
+	    strcpy(SecurityFlag, "NONE");
+	}
+
+	printf("SecurityFlag confirmed as '%s'\n",SecurityFlag);
+	BIO_write(sslbio, SecurityFlag, strlen(SecurityFlag));
+
+
+
     }
     else if (choice == 'b')
     {
@@ -491,11 +551,6 @@ int checkin_file(SSL* ssl, BIO *sslbio, char *buffer) {
     	buffer[length] = '\0';
         printf("Server confirmation: %s\n",buffer);
 
-    }
-    else if (choice == 'c')
-    {
-    	printf("View currently checked-out items\n");
-        choiceProcess (sslbio, buffer, choice);
     }
     else
     {

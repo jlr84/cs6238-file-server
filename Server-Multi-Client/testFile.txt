@@ -1,4 +1,0 @@
-This is a test file...
-that is a total 
-of four lines and 
-79 characters long!

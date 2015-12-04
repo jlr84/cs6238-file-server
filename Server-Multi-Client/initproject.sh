@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# Filename: initdatabase.sh | Script for initialization of mysql database for Project2
+# Filename: initproject.sh | Script for initialization of mysql database and other 
+# requirements for Project2
 # Created by James Roberts on 2 December 2015
-# Last Updated: 2 December 2015
+# Last Updated: 4 December 2015
 
 # This installs the necessary dependencies for mysql required for CS6238 Project 2
 # This is written assuming the user has NOT previously installed mysql on the host system.
@@ -16,8 +17,95 @@ printf "Press Enter to proceed: ...\n"
 read
 printf ": Current Working Directory is: \n"
 pwd
+if [ ! -d ./user1 ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./user1
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./user2 ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./user2
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./user3 ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./user3
+    echo "File created"
+else
+    echo "File exists"
+fi
+printf ": Making required directories\n"
+if [ ! -d ./cert ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./cert/user1 ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert/user1
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./cert/user2 ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert/user2
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./cert/user3 ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert/user3
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./cert/client ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert/client
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./cert/server ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert/server
+    echo "File created"
+else
+    echo "File exists"
+fi
+if [ ! -d ./cert/ca ]
+then
+    echo "File doesn't exist. Creating now"
+    mkdir ./cert/ca
+    echo "File created"
+else
+    echo "File exists"
+fi
+printf "\n: Installing certificates.\n\n"
+pushd ./cert
+sh ./cert.sh
+popd
+
 printf "\n: Installing dependencies.\n\n"
-sudo apt-get install libmysqlclient-dev mysql-server
+# Installing MySQL Database  client / server, and OPENSSL Library
+sudo apt-get install libmysqlclient-dev mysql-server libssl-dev
 printf "\n: Installs complete. Moving on.\n\n"
 
 printf ": Starting MySQL.\n"
@@ -62,5 +150,11 @@ EOF
         break
     fi
 done
+printf "\n: Running Makefile on project files...\n"
+make Makefile
+
+printf "\n: Setting up initial database\n"
+sh ./initdb $USER_PASSWORD
+
 printf "\n: MySQL configuration complete. \n Project 2 database and user initialized. \n REMEMBER, you will need the password for 'project2user' you just created when running the Project 2 'server' that is part of this project.\n\n"
 
